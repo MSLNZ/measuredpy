@@ -75,9 +75,7 @@ implementation.  They follow whatever convention is used in the TP
 
 ## Installation
 
-```bash
-pip install measuredpy
-```
+[TBD]
 
 ## Licence
 
