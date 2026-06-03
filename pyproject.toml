@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "measuredpy"
+version = "0.1.0"
+description = "Python support for Measured, a modelling language for measurement results"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+  {name = "Blair Hall", email = "blair.hall@measurement.govt.nz"}
+]
