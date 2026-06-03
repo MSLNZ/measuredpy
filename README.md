@@ -75,7 +75,13 @@ implementation.  They follow whatever convention is used in the TP
 
 ## Installation
 
-[TBD]
+Clone the repository and install locally:
+
+```bash
+git clone https://github.com/MSLNZ/measuredpy.git
+cd measuredpy
+pip install .
+```
 
 ## Licence
 
