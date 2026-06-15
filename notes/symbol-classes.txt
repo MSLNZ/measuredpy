@@ -1,0 +1,147 @@
+epistemicStatus:
+  recognitionRules:
+    - kind: residualError
+      rendering:
+        description: selected residual-error symbol   
+      recognition:
+          type: exact-symbol
+          value: '\Delta'
+      example: '\Delta'
+
+
+    - kind: knownValue
+      rendering:
+        description: lower-case Latin or Greek symbol
+      recognition:
+        type: any-of
+        rules:
+          - type: regex
+            pattern: '^[a-z]$'
+          - type: symbol-class
+            name: greek-lowercase
+          - type: symbol-class
+            name: greek-lowercase-variant
+      example: \alpha
+
+    - kind: unknownQuantity
+      rendering:
+        description: upper-case Latin or Greek symbol
+      recognition:
+        type: any-of
+        rules:
+          - type: regex
+            pattern: '^[A-Z]$'
+          - type: symbol-class
+            name: greek-uppercase
+      example: \Gamma
+      
+Greek LaTeX command names do not give you case reliably by simple regex. So a symbolic class such as: symbolClass: greek-lowercase is more semantically accurate.
+
+classification_rules: list[ClassificationRule]
+
+where ClassificationRule can support:
+
+regex match
+exact symbol set membership
+named symbol class membership
+later, callable predicates
+
+So the conceptual profile evolves to something like:
+
+ClassificationRule(
+    kind=TermKind.KNOWN_VALUE,
+    matcher=AnyOf(
+        Regex(r"^[a-z]$"),
+        SymbolClass("greek-lowercase"),
+        SymbolClass("greek-lowercase-variant"),
+    ),
+)
+
+GREEK_LOWERCASE = {
+    r"\alpha",
+    r"\beta",
+    r"\gamma",
+    r"\delta",
+    r"\epsilon",
+    r"\zeta",
+    r"\eta",
+    r"\theta",
+    r"\iota",
+    r"\kappa",
+    r"\lambda",
+    r"\mu",
+    r"\nu",
+    r"\xi",
+    r"\pi",
+    r"\rho",
+    r"\sigma",
+    r"\tau",
+    r"\upsilon",
+    r"\phi",
+    r"\chi",
+    r"\psi",
+    r"\omega",
+}
+
+def is_greek_lowercase(symbol: str) -> bool:
+    return symbol in GREEK_LOWERCASE
+    
+A good near-term design might be:
+@dataclass
+class SymbolVocabulary:
+    greek_lowercase: set[str]
+    greek_uppercase: set[str]
+    greek_variants: set[str]
+    adornment_commands: set[str]
+
+and then
+
+@dataclass
+class MdTermConfig:
+    vocabulary: SymbolVocabulary
+
+The profile then depends on a vocabulary object rather than embedding regexes everywhere.
+For example,
+
+CORE_VOCABULARY = SymbolVocabulary(
+    greek_lowercase={
+        r"\alpha",
+        r"\beta",
+        ...
+    },
+    greek_uppercase={
+        r"\Gamma",
+        r"\Delta",
+        ...
+    },
+    greek_variants={
+        r"\varepsilon",
+        r"\varphi",
+        ...
+    },
+    adornment_commands={
+        r"\hat",
+        r"\bar",
+    },
+)
+
+Introduce the concept now;
+separate symbol vocabularies from notation profiles conceptually;
+avoid hardcoding regex-only semantics;
+structure the parser so symbol-class membership can replace regexes later.
+
+So instead of:
+(r"^[a-z]$", KNOWN)
+you are heading toward:
+SymbolClassRule(
+    symbol_class="latin-lowercase",
+    kind=KNOWN,
+)
+and eventually:
+SymbolClassRule(
+    symbol_class="greek-lowercase",
+    kind=KNOWN,
+)
+with the actual membership defined externally or semi-externally.
+
+The notation profile should contain the conventions by which a particular representation form maps concrete notation onto the semantic structure of measurement-model terms and expressions.
