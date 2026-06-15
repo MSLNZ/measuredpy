@@ -1,5 +1,4 @@
-"""mdterm — Parse \\mdterm invocations into structured objects.
-
+"""
 Parses the body of a LaTeX equation environment (assumed to have
 been pre-cleaned of formatting markup) and returns a list of
 Token objects: MdTerm instances for semantic terms and plain
@@ -22,13 +21,15 @@ Usage:
     tokens = parse_mdterms(equation_body, config)
 """
 import re
+from enum import Enum, auto
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
-from typing import Union
+from typing import Optional, List, Tuple, Union
 
-# ── Argument separators ─────────────────────────────────────────
-# Character used to separate multiple values within an argument.
-# Set to None to treat the whole argument as a single value.
+class TermKind(Enum):
+    """Epistemic classification of a quantity term."""
+    KNOWN = auto()
+    UNKNOWN = auto()
+    RESIDUAL = auto()
 
 @dataclass
 class MdTermConfig:
@@ -45,18 +46,33 @@ class MdTermConfig:
                          These are kept in the output as plain strings
                          rather than being promoted to MdTerm objects.
     """
-
-
     namespace_sep: Optional[str] = ","
     qualifier_sep: Optional[str] = ","
     association_sep: Optional[str] = ","
     
     operator_tokens: tuple = (
-        "=", "+", "-", "\\cdot", "\\times", "\\leq", "\\geq",
-        "\\neq", "\\approx", "\\equiv", "\\pm", "\\mp",
-        "\\sum", "\\prod", "\\int", "\\infty",
+        "=", "+", "-", "/", 
+        "\\cdot", "\\times", "\\div",
     )
-  
+ 
+    classification_rules: list = None
+
+    def __post_init__(self):
+        if self.classification_rules is None:
+            # Default: case-based with E as residual
+            self.classification_rules = [
+                (r"^E$",    TermKind.RESIDUAL),
+                (r"^[a-z]", TermKind.KNOWN),
+                (r"^[A-Z]", TermKind.UNKNOWN),
+            ]
+           
+        # # A different set of rules           
+        # classification_rules=[
+            # (r"^\\Delta$",        TermKind.RESIDUAL),
+            # (r"^\\hat\{.*\}$",    TermKind.KNOWN),
+            # (r".*",               TermKind.UNKNOWN),
+        # ]
+
 @dataclass
 class MdTerm:
     """A semantic term parsed from an \\mdterm invocation, or a
@@ -73,7 +89,7 @@ class MdTerm:
                      template parameters.
     """
     body: str
-
+    kind: Optional[TermKind] = None
     namespace: Optional[List[str]] = None
     qualifier: Optional[List[str]] = None
     association: Optional[List[str]] = None
@@ -82,6 +98,17 @@ Token = Union[MdTerm, str]
 
 # ── Helpers ──────────────────────────────────────────────────────
 #
+def classify_body(body: str, config: MdTermConfig) -> Optional[TermKind]:
+    """Classify a term body by epistemic status.
+
+    Applies config.classification_rules in order; returns the
+    TermKind for the first matching rule, or None if no rule
+    matches."""
+    for pattern, kind in config.classification_rules:
+        if re.match(pattern, body):
+            return kind
+    return None
+
 def _tokenise_plain(text: str, config: MdTermConfig) -> list:
     """Tokenise a gap between \\mdterm invocations.
     Maths symbols become MdTerm objects; operators and relations
@@ -92,7 +119,10 @@ def _tokenise_plain(text: str, config: MdTermConfig) -> list:
         if t in config.operator_tokens:
             results.append(t)
         else:
-            results.append(MdTerm(body=t))
+            results.append(MdTerm(
+                body=t,
+                kind=classify_body(t, config),
+            ))
     return results
 
 
@@ -144,16 +174,28 @@ def _extract_delimited(text: str, pos: int,
         f"Unmatched '{open_ch}' at position {start - 1}")
 
 def _split_argument(text: str, separator: str = None) -> list:
-    """Split an argument string by separator, stripping whitespace
-    from each part.  If separator is None, return a single-element
-    list."""
+    """Split an argument string by separator, respecting brace
+    grouping.  Separators inside {...} are ignored."""
     if separator is None:
         return [text.strip()]
-    return [part.strip() for part in text.split(separator)]
+    parts = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        elif ch == separator and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
 
 # ── Parser ──────────────────────────────────────────────────────
 #
-def parse_mdterms(text: str, config: MdTermConfig = None) -> List:
+def parse_mdterms(text: str, 
+                    config: MdTermConfig = None) -> List[Token]:
     """Parse a cleaned equation body into a list of Tokens.
 
     Pass 1: find all \\mdterm invocations and record their
@@ -215,6 +257,7 @@ def parse_mdterms(text: str, config: MdTermConfig = None) -> List:
 
         spans.append((start, pos, MdTerm(
             body=body,
+            kind=classify_body(body, config),
             namespace=namespace,
             qualifier=qualifier,
             association=association,
