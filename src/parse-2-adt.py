@@ -54,24 +54,29 @@ class MdTermConfig:
         "=", "+", "-", "/", 
         "\\cdot", "\\times", "\\div",
     )
+
+
+    adornment_commands: tuple = (
+        "\\hat",
+    )
  
     classification_rules: list = None
 
     def __post_init__(self):
         if self.classification_rules is None:
-            # Default: case-based with E as residual
-            self.classification_rules = [
-                (r"^E$",    TermKind.RESIDUAL),
-                (r"^[a-z]", TermKind.KNOWN),
-                (r"^[A-Z]", TermKind.UNKNOWN),
-            ]
+            # # Default: case-based with E as residual
+            # self.classification_rules = [
+                # (r"^E$",    TermKind.RESIDUAL),
+                # (r"^[a-z]", TermKind.KNOWN),
+                # (r"^[A-Z]", TermKind.UNKNOWN),
+            # ]
            
-        # # A different set of rules           
-        # classification_rules=[
-            # (r"^\\Delta$",        TermKind.RESIDUAL),
-            # (r"^\\hat\{.*\}$",    TermKind.KNOWN),
-            # (r".*",               TermKind.UNKNOWN),
-        # ]
+            # A different set of rules           
+            self.classification_rules=[
+                (r"^\\Delta$",        TermKind.RESIDUAL),
+                (r"^\\hat\{.*\}$",    TermKind.KNOWN),
+                (r".*",               TermKind.UNKNOWN),
+            ]
 
 @dataclass
 class MdTerm:
@@ -111,27 +116,92 @@ def classify_body(body: str, config: MdTermConfig) -> Optional[TermKind]:
 
 def _tokenise_plain(text: str, config: MdTermConfig) -> list:
     """Tokenise a gap between \\mdterm invocations.
-    Maths symbols become MdTerm objects; operators and relations
-    remain as plain strings."""
+
+    Operators remain as strings.  Plain mathematical terms become
+    MdTerm objects.  Simple LaTeX adornments such as \\hat{Y} are
+    preserved as a single term body.
+    """
     results = []
-    for tok in re.finditer(r"\\[a-zA-Z]+|[^\s{}]", text):
-        t = tok.group()
-        if t in config.operator_tokens:
-            results.append(t)
+    pos = 0
+
+    while pos < len(text):
+        pos = _skip_whitespace(text, pos)
+
+        if pos >= len(text):
+            break
+
+        token, pos = _read_plain_token(text, pos, config)
+
+        if token is None:
+            continue
+
+        if token in config.operator_tokens:
+            results.append(token)
         else:
             results.append(MdTerm(
-                body=t,
-                kind=classify_body(t, config),
+                body=token,
+                kind=classify_body(token, config),
             ))
+
     return results
 
+def _read_plain_token(text: str,
+                      pos: int,
+                      config: MdTermConfig
+                      ) -> Tuple[Optional[str], int]:
+    """Read one lexical token from plain mathematical text.
+
+    Recognises:
+        - configured operators,
+        - LaTeX commands,
+        - configured adornment commands with one braced argument,
+        - single non-whitespace characters.
+    """
+    # Try backslash commands first
+    if text[pos] == "\\":
+        command, next_pos = _read_latex_command(text, pos)
+
+        # Preserve configured adornments with their braced argument,
+        # e.g. \hat{Y}
+        if command in config.adornment_commands:
+            next_pos = _skip_whitespace(text, next_pos)
+            if next_pos < len(text) and text[next_pos] == "{":
+                arg, end_pos = _extract_braced(text, next_pos)
+                return f"{command}" + "{" + arg + "}", end_pos
+
+        return command, next_pos
+
+    # Single-character operator or symbol
+    return text[pos], pos + 1
+
+def _read_latex_command(text: str, pos: int) -> Tuple[str, int]:
+    """Read a LaTeX command beginning at pos.
+
+    For alphabetic commands, reads the command name, e.g. \\Delta.
+    For symbolic commands, reads the backslash and following
+    character, e.g. \\%.
+    """
+    assert text[pos] == "\\"
+
+    start = pos
+    pos += 1
+
+    if pos < len(text) and text[pos].isalpha():
+        while pos < len(text) and text[pos].isalpha():
+            pos += 1
+        return text[start:pos], pos
+
+    if pos < len(text):
+        pos += 1
+        return text[start:pos], pos
+
+    return text[start:pos], pos
 
 def _skip_whitespace(text: str, pos: int) -> int:
     """Advance past whitespace."""
     while pos < len(text) and text[pos] in " \t\n\r":
         pos += 1
     return pos
-
 
 def _extract_braced(text: str, pos: int) -> Tuple[str, int]:
     """Extract content of {…}, handling nested braces.
@@ -148,7 +218,6 @@ def _extract_braced(text: str, pos: int) -> Tuple[str, int]:
             depth -= 1
         pos += 1
     return text[start:pos - 1], pos
-
 
 def _extract_delimited(text: str, pos: int,
                         open_ch: str, close_ch: str
@@ -283,12 +352,16 @@ if __name__ == "__main__":
 
     cfg = MdTermConfig(namespace_sep="-")
     
-    eq = r'''\mdterm{f}  
+    # eq = r'''\mdterm{f}  
+	# + \mdterm[gen-msl]{O}[fix](\tv{f}) 
+	# + \mdterm[gen]{E}[rnd](\tv{f,i})
+	# + \mdterm[gen]{E}[res](\tv{f})
+	# - \mdterm[MSL]{E}[ref]
+    # - x'''
+
+    eq = r'''\mdterm{\hat{f}}  
 	+ \mdterm[gen-msl]{O}[fix](\tv{f}) 
-	+ \mdterm[gen]{E}[rnd](\tv{f,i})
-	+ \mdterm[gen]{E}[res](\tv{f})
-	- \mdterm[MSL]{E}[ref]
-    - x'''
+    - \hat{x} - Y'''
     
     for i in parse_mdterms(eq,cfg):
         print(i)
